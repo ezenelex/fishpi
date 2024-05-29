@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="UTF-8">
+	<meta http-equiv="X-UA-Compatible" content="IE=edge">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+	<script src="https://d3js.org/d3.v7.min.js"></script>
+	<script src="https://cdn.jsdelivr.net/npm/date-fns@3.6.0/cdn.min.js"></script>
+	<title>Fish Pi</title>
+</head>
+<body>
+
+	Fishpi
+	<button id="gpioButton1">Toggle LED</button>
+	<button id="gpioButton2">Feed fish</button>
+	<button id="gpioButton3">Check temp</button>
+	<button id="waterChangeButton">Water change</button>
+	<iframe class="myIframe" src="http://154.5.1.117:8000/index.html" frameborder="0" width="640px" height="480px"></iframe>
+	<p id="temperature">Loading...</p>
+	<p id="lastWaterChange">Loading...</p>
+	<p id="lastFishFeeding">Loading...</p>
+	<div id="chart"></div>
+
+	<script>
+
+
+		function updateLastWaterChangeDisplay(timestamp) {
+            		const formattedDate = dateFns.format(new Date(timestamp), 'MMMM do yyyy');
+            		const daysAgo = dateFns.differenceInDays(new Date(), new Date(timestamp));
+            		document.getElementById('lastWaterChange').textContent = `Last water change: ${formattedDate} (${daysAgo} days ago)`;
+        	}
+
+		function updateLastFishFeedingDisplay(timestamp) {
+			const now = new Date()
+			const differenceInMilliseconds = dateFns.differenceInMilliseconds(now, timestamp)
+			const differenceInMinutes = Math.floor(differenceInMilliseconds / (1000 * 60))
+			const differenceInHours = Math.floor(differenceInMinutes / 60);
+			const remainingMinutes = differenceInMinutes % 60;
+			let result = '';
+            		if (differenceInHours > 0) {
+                		result += `${differenceInHours} hours `;
+            		}
+            		if (remainingMinutes > 0 || differenceInHours === 0) {
+                		result += `${remainingMinutes} minutes `;
+            		}
+            		result += 'ago';
+			
+			document.getElementById('lastFishFeeding').textContent = `Last fish feeding: ${result.trim()}`;
+
+		}
+
+		function updateTemperature() {
+			axios.post('/readTemp')
+				.then(response => {
+					const temperature = response.data.temperature
+					document.getElementById('temperature').innerText = temperature.toFixed(2)
+				})
+				.catch(error => console.error('Error getting temperature: ', error))
+		}
+
+		function updateLastWaterChange() {
+			axios.post('/set_lastwaterchange')
+				.then(function(response) {
+					console.log(response.data)
+					updateLastWaterChangeDisplay(response.data.data)
+				})
+				.catch(function(error) {
+					console.error('Error:', error)
+				})
+		}
+
+		function updateLastFishFeeding() {
+			axios.get('/get_lastfishfeeding')
+				.then(function(response) {
+					//console.log('Last fish feeding: ' + response.data.data)
+					updateLastFishFeedingDisplay(response.data.data)
+				})
+				.catch(function(error) {
+					console.error('Error:', error)
+				})
+		}
+
+		updateLastFishFeeding()
+		updateTemperature()
+		setInterval(updateTemperature, 1000)
+		setInterval(updateLastFishFeeding, 60000)
+
+		axios.get('/get_lastwaterchange')
+			.then(function(response) {
+				console.log(response.data)
+				updateLastWaterChangeDisplay(response.data.data)
+			})
+			.catch(function(error) {
+				console.error('Error:', error)
+			})
+
+
+		document.getElementById('gpioButton1').addEventListener('click', function() {
+			axios.post('/toggleLED')
+				.then(function(response) {
+					console.log(response.data)
+				})
+				.catch(function(error) {
+					console.error('Error:', error)
+				})
+		})
+		document.getElementById('gpioButton2').addEventListener('click', function() {
+			axios.post('/feedFish')
+				.then(function(response) {
+					console.log(response.data.data)
+					updateLastFishFeedingDisplay(response.data.data)
+				})
+				.catch(function(error) {
+					console.error('Error:', error)
+				})
+		})
+		document.getElementById('gpioButton3').addEventListener('click', function() {
+			axios.post('/readTemp')
+				.then(function(response) {
+					console.log(response.data)
+				})
+				.catch(function(error) {
+					console.error('Error:', error)
+				})
+		})
+		document.getElementById('waterChangeButton').addEventListener('click', updateLastWaterChange)
+	</script>
+	
+	<script>
+		console.log('fetching data')
+		d3.csv('/temperature_log.csv').then(data => {
+			console.log('parsing data')
+			data.forEach(d => {
+				d.timestamp = new Date(d.timestamp)
+				d.temperature = +d.temperature
+			})
+
+			console.log('setting up chart dimensions')
+			const margin = { top: 20, right: 20, bottom: 30, left: 50 }
+			const width = 960 - margin.left - margin.right
+			const height = 500 - margin.top - margin.bottom
+
+			console.log('setting up x and y scales')
+			const x = d3.scaleTime().range([0, width])
+			const y = d3.scaleLinear().range([height, 0])
+
+			console.log('setting up the line generator')
+			const line = d3.line()
+				.x(d => x(d.timestamp))
+				.y(d => y(d.temperature))
+
+
+			console.log('setting up the svg element')
+			const svg = d3.select("#chart").append("svg")
+				.attr("width", width + margin.left + margin.right)
+				.attr("height", height + margin.top + margin.bottom)
+				.append("g")
+				.attr("transform", `translate(${margin.left},${margin.top})`)
+
+			console.log('setting the domain of the scales')
+			x.domain(d3.extent(data, d => d.timestamp))
+			y.domain(d3.extent(data, d => d.temperature))
+
+			console.log('adding x axis')
+			svg.append("g")
+				.attr("transform", `translate(0,${height})`)
+				.call(d3.axisBottom(x))
+
+			console.log('adding y axis')
+			svg.append("g")
+				.call(d3.axisLeft(y))
+			
+			console.log('adding the line path')
+			svg.append("path")
+				.data([data])
+				.attr("class","line")
+				.attr("d", line)
+				.style("fill","none")
+				.style("stroke","steelblue")
+				.style("stroke-width","2px")
+		}).catch(error => {
+			console.error('Error loading the CSV data: ', error)
+		})
+		
+
+
+	</script>
+	
+</body>
+</html>

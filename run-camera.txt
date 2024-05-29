@@ -1,0 +1,4 @@
+open vlc media player
+media -> open network stream
+tcp/h264://192.168.0.23:10101
+
